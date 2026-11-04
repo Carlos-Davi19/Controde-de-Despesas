@@ -60,6 +60,8 @@ details{margin-top:18px;background:var(--cd);border:1px solid var(--bd);border-r
 summary{cursor:pointer;font-weight:600}
 .bi{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--bd);font-size:15px}
 .bi:first-of-type{margin-top:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 10px}.ch{min-height:36px;padding:5px 12px;border-radius:18px;font-size:14px}.ch.on{background:var(--ac);color:var(--on);border-color:var(--ac)}
+.m .cat{color:var(--ac);font-weight:600}
 #fab{position:fixed;right:calc(18px + env(safe-area-inset-right));bottom:calc(18px + env(safe-area-inset-bottom));width:60px;height:60px;border-radius:30px;font-size:32px;padding:0;box-shadow:0 4px 14px #0004}
 dialog{width:min(92vw,460px);max-height:92vh;border:0;border-radius:16px;padding:18px;background:var(--cd);color:var(--tx)}
 dialog::backdrop{background:#0009}
@@ -74,9 +76,10 @@ dialog>button,#f>.two button{width:100%}
 <div id="pm" class="nav"><button id="pv" class="ib" aria-label="Mês anterior">‹</button><b id="ml"></b><button id="nx" class="ib" aria-label="Próximo mês">›</button></div>
 <div id="pp" class="two" hidden><label>De<input type="date" id="de"></label><label>Até<input type="date" id="ate"></label></div>
 <div class="two"><input id="q" type="search" placeholder="Buscar item" aria-label="Buscar item"><select id="st" aria-label="Situação"><option value="">Todas</option><option value="pe">Pendentes</option><option value="pg">Pagas</option><option value="vc">Vencidas</option></select></div>
-<label>Filtrar datas por<select id="bs"><option value="venc">Vencimento</option><option value="inc">Inclusão</option></select></label>
+<div class="two"><label>Categoria<select id="fc"><option value="">Todas</option></select></label><label>Datas por<select id="bs"><option value="venc">Vencimento</option><option value="inc">Inclusão</option></select></label></div>
 <section class="sum"><div><small>Total</small><b id="s1"></b></div><div><small>Pago</small><b id="s2"></b></div><div><small>A pagar</small><b id="s3"></b></div></section>
 <main id="ls"></main>
+<details><summary>Total por categoria</summary><div id="bk"></div></details>
 <details><summary>Total por item</summary><div id="bl"></div></details>
 </div>
 <button id="fab" class="pr" aria-label="Nova despesa">+</button>
@@ -84,11 +87,12 @@ dialog>button,#f>.two button{width:100%}
 <dialog id="fm"><form id="f">
 <h2 id="ft2">Nova despesa</h2>
 <label>Item<input id="fi" list="il" maxlength="80" autocomplete="off" placeholder="Ex.: Geladeira"></label><datalist id="il"></datalist>
+<label>Categoria (opcional)<input id="fk" maxlength="40" autocomplete="off" placeholder="Ex.: Cartão Visa"></label><div id="kc" class="chips"></div>
 <div class="two"><label>Valor (R$)<input id="fv" inputmode="decimal" placeholder="0,00"></label><label id="lt">O valor é<select id="ft"><option value="p">de cada parcela</option><option value="t">total</option></select></label></div>
 <div class="two"><label id="ln">Parcelas<input id="fn" type="number" min="1" max="60" value="1" inputmode="numeric"></label><label><span id="lv">1º vencimento</span><input id="fd" type="date"></label></div>
 <label>Data de inclusão<input id="fx" type="date"></label>
 <label id="lp" class="chk" hidden><input id="fp" type="checkbox"> Pago</label>
-<label id="la" class="chk" hidden><input id="fa" type="checkbox" checked> Mudar o nome em todas as parcelas</label>
+<label id="la" class="chk" hidden><input id="fa" type="checkbox" checked> Mudar item e categoria em todas as parcelas</label>
 <p id="pw" class="mu"></p>
 <div class="two"><button type="button" id="cn">Cancelar</button><button class="pr" id="sv">Salvar</button></div>
 <div class="two"><button type="button" id="x1" class="dg" hidden>Excluir esta parcela</button><button type="button" id="x2" class="dg" hidden>Excluir todas as parcelas</button></div>
@@ -117,36 +121,42 @@ let D=[];try{D=JSON.parse(localStorage.getItem(K)||'[]')}catch(e){localStorage.s
 const save=()=>localStorage.setItem(K,JSON.stringify(D));
 let mode='m',cur=today().slice(0,7),eid=null;
 
+const cats=()=>[...new Set(D.map(r=>r.cat).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+const normCat=s=>{s=s.trim().replace(/\s+/g,' ');return cats().find(c=>c.toLowerCase()===s.toLowerCase())||s};
 function filt(){
- const q=$('#q').value.trim().toLowerCase(),st=$('#st').value,b=$('#bs').value,a=$('#de').value,z=$('#ate').value,t=today();
+ const q=$('#q').value.trim().toLowerCase(),st=$('#st').value,b=$('#bs').value,a=$('#de').value,z=$('#ate').value,t=today(),kc=$('#fc').value;
  return D.filter(r=>{const dt=r[b];
   if(mode==='m'&&dt.slice(0,7)!==cur)return false;
   if(mode==='p'&&((a&&dt<a)||(z&&dt>z)))return false;
   if(q&&!r.item.toLowerCase().includes(q))return false;
+  if(kc==='__sem'&&r.cat)return false;
+  if(kc&&kc!=='__sem'&&r.cat!==kc)return false;
   if(st==='pg'&&!r.pago)return false;
   if(st==='pe'&&r.pago)return false;
   if(st==='vc'&&(r.pago||r.venc>=t))return false;
   return true}).sort((x,y)=>x[b].localeCompare(y[b])||x.item.localeCompare(y.item)||x.p-y.p);
 }
 function render(){
+ {const cs=cats(),sv=$('#fc').value;$('#fc').innerHTML='<option value="">Todas</option>'+(cs.length&&D.some(r=>!r.cat)?'<option value="__sem">Sem categoria</option>':'')+cs.map(k=>`<option value="${esc(k)}">${esc(k)}</option>`).join('');$('#fc').value=sv;if($('#fc').selectedIndex<0)$('#fc').value=''}
  $('#pm').hidden=mode!=='m';$('#pp').hidden=mode!=='p';
  document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
  $('#ml').textContent=mlabel(cur);
- const L=filt(),b=$('#bs').value,t=today();let tot=0,pg=0,h='',last='',sub={},it={};
- L.forEach(r=>{tot+=r.val;if(r.pago)pg+=r.val;const k=r[b].slice(0,7);sub[k]=(sub[k]||0)+r.val;it[r.item]=(it[r.item]||0)+r.val});
+ const L=filt(),b=$('#bs').value,t=today();let tot=0,pg=0,h='',last='',sub={},it={},kt={};
+ L.forEach(r=>{tot+=r.val;if(r.pago)pg+=r.val;const k=r[b].slice(0,7);sub[k]=(sub[k]||0)+r.val;it[r.item]=(it[r.item]||0)+r.val;const kk=r.cat||'Sem categoria';kt[kk]=(kt[kk]||0)+r.val});
  L.forEach(r=>{const k=r[b].slice(0,7);
   if(mode!=='m'&&k!==last){last=k;h+=`<h3><span>${mlabel(k)}</span><span>${brl(sub[k])}</span></h3>`}
   const late=!r.pago&&r.venc<t;
-  h+=`<div class="r${r.pago?' ok':''}"><button class="ck" data-ck="${r.id}" aria-label="Marcar como paga">${r.pago?'✓':''}</button><div class="m" data-ed="${r.id}"><b>${esc(r.item)}</b><small${late?' class="late"':''}>Vence em ${fdt(r.venc)}${late?' · vencida':''}</small><small>Incluída em ${fdt(r.inc)}</small></div><div class="v">${brl(r.val)}<small>${r.p}/${r.n}</small></div></div>`});
+  h+=`<div class="r${r.pago?' ok':''}"><button class="ck" data-ck="${r.id}" aria-label="Marcar como paga">${r.pago?'✓':''}</button><div class="m" data-ed="${r.id}"><b>${esc(r.item)}</b>${r.cat?`<small class="cat">${esc(r.cat)}</small>`:''}<small${late?' class="late"':''}>Vence em ${fdt(r.venc)}${late?' · vencida':''}</small><small>Incluída em ${fdt(r.inc)}</small></div><div class="v">${brl(r.val)}<small>${r.p}/${r.n}</small></div></div>`});
  $('#ls').innerHTML=h||'<p class="mu c">Nenhuma despesa nesta consulta.<br>Toque em + para incluir.</p>';
  $('#s1').textContent=brl(tot);$('#s2').textContent=brl(pg);$('#s3').textContent=brl(tot-pg);
  $('#bl').innerHTML=Object.entries(it).sort((a,c)=>c[1]-a[1]).map(([k,v])=>`<div class="bi"><span>${esc(k)}</span><b>${brl(v)}</b></div>`).join('')||'<p class="mu">Sem itens.</p>';
+ $('#bk').innerHTML=Object.entries(kt).sort((a,c)=>c[1]-a[1]).map(([k,v])=>`<div class="bi"><span>${esc(k)}</span><b>${brl(v)}</b></div>`).join('')||'<p class="mu">Sem categorias.</p>';
  $('#il').innerHTML=[...new Set(D.map(r=>r.item))].sort().map(k=>`<option value="${esc(k)}">`).join('');
 }
 document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{mode=b.dataset.m;render()});
 $('#pv').onclick=()=>{cur=addM(cur+'-01',-1).slice(0,7);render()};
 $('#nx').onclick=()=>{cur=addM(cur+'-01',1).slice(0,7);render()};
-['#q','#st','#bs','#de','#ate'].forEach(s=>['input','change'].forEach(ev=>$(s).addEventListener(ev,render)));
+['#q','#st','#bs','#de','#ate','#fc'].forEach(s=>['input','change'].forEach(ev=>$(s).addEventListener(ev,render)));
 $('#ls').onclick=e=>{const c=e.target.closest('[data-ck]'),d=e.target.closest('[data-ed]');
  if(c){const r=D.find(x=>x.id===c.dataset.ck);r.pago=!r.pago;save();render()}else if(d)openF(D.find(x=>x.id===d.dataset.ed))};
 
@@ -160,27 +170,30 @@ function pw(){
 function openF(r){
  const e=!!r;eid=e?r.id:null;
  $('#ft2').textContent=e?'Editar despesa':'Nova despesa';
- $('#fi').value=e?r.item:'';$('#fv').value=e?(r.val/100).toFixed(2).replace('.',','):'';
+ $('#fi').value=e?r.item:'';$('#fk').value=e?(r.cat||''):'';$('#fv').value=e?(r.val/100).toFixed(2).replace('.',','):'';
  $('#fd').value=e?r.venc:today();$('#fx').value=e?r.inc:today();$('#fn').value=1;$('#ft').value='p';
  $('#lv').textContent=e?`Vencimento (parcela ${r.p}/${r.n})`:'1º vencimento';
  $('#fp').checked=e&&r.pago;$('#lt').hidden=$('#ln').hidden=e;$('#lp').hidden=!e;
  const g=e?D.filter(x=>x.g===r.g).length:0;
  $('#la').hidden=g<2;$('#x1').hidden=!e;$('#x2').hidden=g<2;
- pw();$('#fm').showModal();
+ pw();chips();$('#fm').showModal();
 }
+function chips(){const v=$('#fk').value.trim().toLowerCase();$('#kc').innerHTML=cats().map(k=>`<button type="button" class="ch${k.toLowerCase()===v?' on':''}" data-k="${esc(k)}">${esc(k)}</button>`).join('')}
+$('#fk').addEventListener('input',chips);
+$('#kc').onclick=e=>{const b=e.target.closest('[data-k]');if(b){$('#fk').value=b.dataset.k;chips()}};
 $('#fab').onclick=()=>openF(null);
 $('#cn').onclick=()=>$('#fm').close();
 $('#f').onsubmit=e=>{
  e.preventDefault();
- const item=$('#fi').value.trim(),c=money($('#fv').value),d=$('#fd').value,inc=$('#fx').value||today();
+ const item=$('#fi').value.trim(),c=money($('#fv').value),d=$('#fd').value,inc=$('#fx').value||today(),cat=normCat($('#fk').value);
  if(!item||!c||!d)return alert('Preencha item, valor e vencimento.');
  if(eid){
-  const r=D.find(x=>x.id===eid);Object.assign(r,{val:c,venc:d,inc,pago:$('#fp').checked});
-  if(!$('#la').hidden&&$('#fa').checked)D.forEach(x=>{if(x.g===r.g)x.item=item});else r.item=item;
+  const r=D.find(x=>x.id===eid);Object.assign(r,{val:c,venc:d,inc,cat,pago:$('#fp').checked});
+  if(!$('#la').hidden&&$('#fa').checked)D.forEach(x=>{if(x.g===r.g){x.item=item;x.cat=cat}});else r.item=item;
  }else{
   const n=Math.max(1,Math.min(60,+$('#fn').value||1)),tt=$('#ft').value==='t',b=tt?Math.floor(c/n):c,ex=tt?c-b*n:0,g=uid();
-  for(let i=0;i<n;i++)D.push({id:g+i,g,item,inc,venc:addM(d,i),val:b+(i<ex?1:0),p:i+1,n,pago:false});
-  mode='m';cur=d.slice(0,7);$('#bs').value='venc';$('#q').value='';$('#st').value='';
+  for(let i=0;i<n;i++)D.push({id:g+i,g,item,cat,inc,venc:addM(d,i),val:b+(i<ex?1:0),p:i+1,n,pago:false});
+  mode='m';cur=d.slice(0,7);$('#bs').value='venc';$('#q').value='';$('#st').value='';$('#fc').value='';
  }
  save();$('#fm').close();render();
 };
@@ -197,7 +210,7 @@ $('#m0').onclick=()=>$('#mu').close();
 $('#m1').onclick=()=>out('despesas-backup-'+today()+'.json','application/json',JSON.stringify(D));
 $('#m2').onclick=()=>$('#fl').click();
 $('#m3').onclick=()=>{
- const r=['Inclusão;Item;Vencimento;Valor;Parcela;Situação',...filt().map(x=>[fdt(x.inc),'"'+x.item.replace(/"/g,'""')+'"',fdt(x.venc),(x.val/100).toFixed(2).replace('.',','),x.p+'/'+x.n,x.pago?'Paga':'Pendente'].join(';'))];
+ const r=['Inclusão;Item;Categoria;Vencimento;Valor;Parcela;Situação',...filt().map(x=>[fdt(x.inc),'"'+x.item.replace(/"/g,'""')+'"','"'+(x.cat||'').replace(/"/g,'""')+'"',fdt(x.venc),(x.val/100).toFixed(2).replace('.',','),x.p+'/'+x.n,x.pago?'Paga':'Pendente'].join(';'))];
  out('despesas-'+today()+'.csv','text/csv','\ufeff'+r.join('\r\n'));
 };
 $('#m4').onclick=()=>{if(confirm('Apagar TODOS os dados deste aparelho?')&&confirm('Tem certeza? Não dá para desfazer.')){D=[];save();$('#mu').close();render()}};
